@@ -1,0 +1,52 @@
+body {
+    width: 20rem;
+    font: open-sans;
+}
+.sliders > input {
+    width: 80%;
+    height: 3rem;
+    outline: none;
+    opacity: .7;
+    -webkit-appearance: none;
+    background: darkgrey;
+    height: .5rem;
+    border-radius: 1rem;
+}
+.sliders > input:hover {
+    opacity: 1;
+}
+.sliders > input::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 1rem; 
+    height: 1rem; 
+    background: #654597;
+    border-radius: 1rem;
+}
+.sliders--hours {
+    margin-top: 1rem;
+}
+.sliders--action {
+    margin-top: 1rem;
+}
+.sliders {
+    text-align: center;
+}
+.settings {
+    text-align: left;
+}
+.slider--headers {
+    color: #654597;
+}
+.image {
+    margin-left: auto;
+    margin-right: auto;
+    display: block;
+}
+.refresh__button--button {
+    margin: auto;
+    display: block;
+    margin-top: 1rem;
+    width: 10rem;
+    border-radius: 1rem;
+}

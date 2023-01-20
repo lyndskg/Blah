@@ -1,184 +1,232 @@
-const { Builder, By, Key, until } = require("selenium-webdriver");
-const { sleep } = require("./sleep");
-require('dotenv').config()
-const { captchaCheck } = require("./captchaCheck");
-const ora = require("ora");
-const logUpdate = require("log-update");
+chrome.tabs.executeScript(null, {file: "background.js"});
 
-module.exports = {
-sharePersonalCloset: async function (sort) {
-    logUpdate(`Sorting by ${sort}`);
+let refreshButton = null;
 
-    console.time("Closet Time Taken:");
+let tokens = {
+    accesstoken: await GetAccessToken(),
+    userid: await GetUserId(),
+    actionRefreshRate: null,
+    refreshRateAllInMinutes: null,
+    numberOfListings: null,
+    timeUntilNextRefresh: null,
+    itemsRefreshed: 0,
+    interval: null,
+    stopRefresh: false
+}
 
-    let driver = await new Builder().forBrowser("chrome").build();
+document.body.onload = addSliderValue("sliders--action", "settings--actions__number", "Seconds");
+document.body.onload = addSliderValue("sliders--hours", "settings--hour__number", "Hours");
 
-    await driver.get("https://poshmark.com/login");
+document.body.onload = OnLoad();
+
+function OnLoad() {
+    refreshButton = document.querySelector(".refresh__button--button");
+    refreshButton.addEventListener("click", refreshClick);
+    tokens.actionRefreshRate = document.querySelector(".sliders--action").value;
+    tokens.refreshRateAllInMinutes = document.querySelector(".sliders--hours").value * 60;
+}
+
+async function GetAllUnsoldSlugs() {
+    let unsoldListings = [];
+    let cursor = "";
+    let response = await Get48Listings(tokens.accesstoken, cursor);
+
+    while (true) {
+          if (response.products[response.products.length - 1].status != "ONSALE") {
+            for (const product of response.products){
+                if (product.status == "ONSALE") {
+                    unsoldListings.push(product.slug);
+                }
+            }
+            break;
+          } else {
+              for (const product of response.products){
+                unsoldListings.push(product.slug);
+              }
+              cursor = response.meta.cursor;
+              await sleep(1);
+          }
+    }
+
+    tokens.numberOfListings = unsoldListings.length;
+
+    return unsoldListings;
+}
+
+function displayNumberOfUnSoldItems() {
+    let refreshButton = document.querySelector(".refresh__button--button");
+    let numberOfItems = document.createElement("p");
+    numberOfItems.innerHTML = `Itmes Refreshed: 0/${tokens.numberOfListings}`;
+    refreshButton.appendChild(numberOfItems);
+}
+
+async function GetListing(slug) {
+    const options = {
+        method: 'GET',
+        headers: {Authorization: `Bearer ${tokens.accesstoken}`}
+      };
+      let response = null;
+      try {
+        response = await fetch(`https://poshmark.com/closet/lyndskgg?availability=available&sort_by=${slug}/`, options);
+        response = await response.json();
+      }
+      catch {
+        console.log(`https://poshmark.com/closet/lyndskgg?availability=available&sort_by=${slug} Failed`);
+      }
+    return response;
+}
+
+function showPicture(itemPicture){
+    let image;
+
+    try {
+      image = document.querySelector("img");
+    } catch {
+      image = document.createElement("img");
+      image.className = "image";
+      let imageParent = document.querySelector(".settings--title");
+      imageParent.appendChild(image);
+    }
+
+    image.src = itemPicture;
+
+    image.style.width = "5rem";
+    image.style.height = "5rem";
+    image.style.border = "1px solid black";
+}
+
+function sleep(seconds) {
+    return new Promise(resolve => setTimeout(resolve, seconds * 1000));
+}
+
+async function PutListing(getListingResponse){
+    let pictureIds = [];
+
+    for (const picture of getListingResponse.pictures) {
+        pictureIds.push(picture[0].id);
+    }
     
-    try {
-      let stupidLoginPage = await driver.findElement(By.name("userHandle"));
-      if (stupidLoginPage) {
-        logUpdate("Stupid login page found.");
-        driver.quit();
+    let resultBody = JSON.stringify({"pictureIds": pictureIds,
+        "description": getListingResponse.description,
+        "group": getListingResponse.group,
+        "productType": getListingResponse.productType,
+        "attributes": getListingResponse.attributes,
+        "gender": getListingResponse.gender,
+        "variantSetId": getListingResponse.variantSetId,
+        "nationalShippingCost": getListingResponse.price.nationalShippingCost,
+        "priceAmount": getListingResponse.price.priceAmount,
+        "variants": getListingResponse.variants,
+        "shippingMethods": getListingResponse.shippingMethods,
+        "priceCurrency": getListingResponse.price.currencyName,
+        "address": getListingResponse.address,
+        "countryCode": getListingResponse.countryCode,
+        "categoryId": getListingResponse.categoryId,
+        "brandId": getListingResponse.brandId,
+        "isKids": getListingResponse.isKids});
+
+    const options = {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${tokens.accesstoken}`,
+          "Content-Type": "application/json"
+        },
+        body: resultBody,
+        redirect: 'follow'
+      };
+      let response = null;
+      try {
+        response = await fetch(`https://webapi.depop.com/api/v2/products/${getListingResponse.slug}/`, options);
+        return response.status;
       }
-    } catch (err) {
-      logUpdate("Normal login page found.");
-    }
+      catch {
+          response = await response.json();
+        return response;
+      }
+}
 
-    await driver
-      .findElement(By.name("login_form[username_email]"))
-      .sendKeys(process.env.POSH_USERNAME);
-    await driver
-      .findElement(By.name("login_form[password]"))
-      .sendKeys(process.env.POSH_PASSWORD, Key.ENTER);
+function incrementItems() {
+    let numberOfItems = document.querySelector("p");
+    tokens.itemsRefreshed++;
+    numberOfItems.innerHTML = `Itmes Refreshed: ${tokens.itemsRefreshed}/${tokens.numberOfListings}`;
+}
 
-    await sleep(2500);
+async function MoveSoldListingToBottom() {
+    const options = {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+           Authorization: `Bearer ${tokens.accesstoken}`
+        },
+        body: '{"move_sold_to_end":true,"changeset":[]}'
+      };
+      let response = null;
+      try {
+        response = await fetch(`https://webapi.depop.com/api/v1/shop/${tokens.userid}/rearrange`, options)
+      }   
+      catch(e) {
+        console("Exception in Move Sold Listings To Bottom", e);
+      }
+      if(response.status != 204) {
+          console.log("Move Sold Listings to Bottom Failed", response);
+      }
+}
 
-    try {
-      let error = await driver.findElement(By.css("span.base_error_message"));
-      if (error.id_) {
-        logUpdate("Captcha detected!");
+function RemovePicture(){
+    let image = document.querySelector("img");
+    image.remove();
+}
 
-        let url = await driver.getCurrentUrl();
-        let moveOn = false;
+function interval() {
+    let seconds = 60;
 
-        while (!moveOn) {
-          await sleep(5000);
-          url = await driver.getCurrentUrl();
-          if (url === "https://poshmark.com/feed?login=true") {
-            moveOn = true;
-          }
+    tokens.refreshRateAllInMinutes--;
+
+    tokens.interval = setInterval(function() {
+        if (tokens.refreshRateAllInMinutes == 0) {
+            RefreshAllListings();
+            tokens.refreshRateAllInMinutes = document.querySelector(".sliders--hours").value;
+        } else {
+            let hours = Math.floor(tokens.refreshRateAllInMinutes/60);
+            let minutes = tokens.refreshRateAllInMinutes % 60;
+            let numberOfItems = document.querySelector("p");
+
+            seconds--;
+
+            if (seconds == 0) {
+                seconds = 60;
+                tokens.refreshRateAllInMinutes--;
+            }
+
+            numberOfItems.innerHTML = `Time Remaining Until Next Refresh ${hours}:${minutes}:${seconds}`;
         }
-      }
+    }, 1000);
+}
 
-    } catch (err) {
-      logUpdate("No Captcha detected!");
-    }
+  
+async function RefreshAllListings() {
+    let slugs = await GetAllUnsoldSlugs();
+    displayNumberOfUnSoldItems();
 
-    await driver.get(
-      `https://poshmark.com/closet/bunchofbates?availability=available&sort_by=${sort}`
-    );
-
-    let bottom = false;
-    let scrollNumber = 0;
-
-    let currentHeight = await driver.executeScript(
-      "return document.documentElement.scrollHeight"
-    );
-
-    while (!bottom) {
-      logUpdate("Scroll # ", scrollNumber);
-
-      let scrollScript = "window.scrollTo(0, document.body.scrollHeight);";
+    for (const slug of slugs) {
       
-      driver.executeScript(scrollScript);
+      let individualListing = await GetListing(slug);
 
-      await sleep(2500);
+      showPicture(individualListing.pictures[0][0].url);
+      await sleep(tokens.actionRefreshRate/2);
 
-      let newHeight = await driver.executeScript(
-        "return document.documentElement.scrollHeight"
-      );
+      await PutListing(individualListing);
+      await sleep(tokens.actionRefreshRate/2);
 
-      if (currentHeight === newHeight) {
-        bottom = true;
-      } else {
-        scrollNumber++;
-        currentHeight = newHeight;
+      if (tokens.stopRefresh){
+        break;
       }
+      incrementItems();
     }
 
-    let item_pat =
-      "//div[@class='d--fl ai--c social-action-bar__action social-action-bar__share']";
+    await MoveSoldListingToBottom();
 
-    let items = await driver.findElements(By.xpath(item_pat));
-    let buttons = [];
-
-    for (let i = 0; i < items.length; i++) {
-      let result = await items[i].findElements(
-        By.css("i[class='icon share-gray-large']")
-      );
-
-      buttons.push(result);
+    if(tokens.stopRefresh == false) {
+      RemovePicture();
+      interval();
     }
-
-    logUpdate(`Found ${buttons.length} items to share`);
-    buttons.reverse();
-
-    let totalItems = buttons.length;
-
-    for (let i = 0; i < buttons.length; i++) {
-      let captchaCheck = false;
-      let captchaDisplayed;
-
-      try {
-        let captchaPath = "//div[@class='d--fl  jc--c g-recaptcha-con']";
-        let found = await driver.findElement(By.xpath(captchaPath));
-
-        captchaDisplayed = await found.isDisplayed();
-
-        if (captchaDisplayed) {
-          captchaCheck = true;
-        }
-      } catch (err) {}
-
-      while (captchaCheck) {
-        try {
-          let captchaPath = "//div[@class='d--fl  jc--c g-recaptcha-con']";
-          let found = await driver.findElement(By.xpath(captchaPath));
-
-          console.log("Is found and displayed? ", await found.isDisplayed());
-
-          if (!found) {
-            console.log("no captcha so should set false");
-            captchaCheck = false;
-          }
-
-          let result = await found.isDisplayed();
-
-          if (!result) {
-            console.log("no captcha so should set false");
-            captchaCheck = false;
-          }
-
-          console.log("Captcha detected.");
-          await sleep(5000);
-
-        } catch (err) {
-          console.log("no captcha so should set false");
-          captchaCheck = false;
-        }
-      }
-
-      try {
-        // let spinner = ora.spinner("dots12").start();
-        // logUpdate(`${ora(`Sharing item number: ${i}/${totalItems}`).start()}`);
-        logUpdate(`Sharing item number: ${i + 1}/${totalItems}`);
-
-        await driver.executeScript("arguments[0].click();", buttons[i][0]);
-        await sleep(500);
-
-      } catch (err) {
-        console.log("Error in first click", err);
-      }
-
-      try {
-        let sharePath = "//i[@class='icon pm-logo-white']";
-        let shareToFollowers = await driver.findElements(By.xpath(sharePath));
-       
-        await driver.executeScript (
-          "arguments[0].click();",
-          shareToFollowers[0]
-        );
-
-        await sleep(500);
-
-      } catch (err) {
-        console.log("Error in second click", err);
-      }
-    }
-
-    console.timeEnd("Closet Time Taken:");
-
-    driver.quit();
-  },
-};
+}
