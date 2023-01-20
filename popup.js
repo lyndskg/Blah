@@ -2,6 +2,9 @@ chrome.tabs.executeScript(null, {file: "background.js"});
 
 let refreshButton = null;
 
+document.body.onload = addSliderValue("sliders--action", "settings--actions__number", "Seconds");
+document.body.onload = addSliderValue("sliders--hours", "settings--hour__number", "Hours");
+
 let tokens = {
     accesstoken: await GetAccessToken(),
     userid: await GetUserId(),
@@ -14,8 +17,26 @@ let tokens = {
     stopRefresh: false
 }
 
-document.body.onload = addSliderValue("sliders--action", "settings--actions__number", "Seconds");
-document.body.onload = addSliderValue("sliders--hours", "settings--hour__number", "Hours");
+async function GetAccessToken() {
+    try {
+      let accessToken = await chrome.cookies.get({
+        url: "https://www.depop.com",
+        name: "access_token"
+      });
+      return accessToken.value;
+    } catch {
+    console.log("This is what happens");
+    }
+}
+
+async function GetUserId(){
+    let userId = await chrome.cookies.get({
+        url: "https://www.depop.com",
+        name: "user_id"
+    });
+
+    return userId.value;
+} 
 
 document.body.onload = OnLoad();
 
@@ -51,6 +72,23 @@ async function GetAllUnsoldSlugs() {
     tokens.numberOfListings = unsoldListings.length;
 
     return unsoldListings;
+}
+
+async function Get48Listings(accessToken, cursor){
+    const options = {
+        method: 'GET',
+        headers: {Authorization: `Bearer ${accessToken}`}
+      };
+      let response = null;
+
+      try{
+        let result = await fetch(`https://webapi.depop.com/api/v1/shop/products/?lang=en&cursor=${cursor}&limit=24`, options);
+        response = await result.json();
+      }
+      catch {
+          console.log("https://webapi.depop.com/api/v1/shop/products/?lang=en&cursor=&limit=24 failed")
+      }
+    return response;
 }
 
 function displayNumberOfUnSoldItems() {
