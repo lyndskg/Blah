@@ -1,0 +1,20 @@
+{
+    "name": "Poshmark Bot",
+    "version": "1.0",
+    "description": "A simple bot to automate Poshmark functionalities.",
+    
+    "manifest_version": 3,
+
+    "permissions": ["activeTab", "declarativeContent", "storage", "scripting", "identity", "cookies"],
+    "host_permissions": ["*://*.poshmark.com/*"], 
+    
+    "background": {
+        "service_worker": "background.js"
+    },
+
+    "action": {
+        "default_popup": "popup.html"
+    },
+
+    "options_page": "login.html"
+}
