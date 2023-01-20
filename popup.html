@@ -16,13 +16,20 @@
         <div class="sliders">
             <h3 class="settings settings--actions slider--headers">Individual Refresh Speed</h3>
             <h3 class="settings settings--actions__number"></h3>
-            <input type="range" min="2" max="60" value = "3.5" class="sliders--action">
+            <input type="range" min="2" max="60" value="3.5" class="sliders--action" oninput="rangeValue.innerText = this.value">
+            <p id="rangeValue">3.5</p>
+            <br>
             <h3 class="settings settings--hours slider--headers">Auto-Refresh Interval</h3>
             <h3 class="settings settings--hour__number"></h3>
-            <input type="range" min="1" max="24" value = "8" class="sliders--hours">
+            <input type="range" min="1" max="24" value = "8" class="sliders--hours" oninput="rangeValue.innerText = this.value">
+            <p id="rangeValue">8</p>
         </div>
+        <br>
         <div class="refresh__button">
             <button class="refresh__button--button">Refresh All</button>
+        </div>
+        <div class="stop__refresh">
+            <button class="stop__refresh--button">Stop Refreshing</button>
         </div>
     </div>
     <script src="./popup.js" type="module"></script>

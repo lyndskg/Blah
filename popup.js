@@ -1,9 +1,31 @@
-chrome.tabs.executeScript(null, {file: "background.js"});
+const { Builder, By, Key, until } = require("selenium-webdriver");
+const { sleep } = require("./sleep");
+require('dotenv').config()
+const { captchaCheck } = require("./captchaCheck");
+
+let driver = await new Builder().forBrowser("chrome").build();
 
 let refreshButton = null;
 
 document.body.onload = addSliderValue("sliders--action", "settings--actions__number", "Seconds");
 document.body.onload = addSliderValue("sliders--hours", "settings--hour__number", "Hours");
+
+function addSliderValue(inputElement, outputElement, outputType) {
+    let inputSlider = document.querySelector(`.${inputElement}`);
+    let outputSliderValue = document.querySelector(`.${outputElement}`);
+
+    outputSliderValue.innerHTML = inputSlider.value + " " + outputType;
+
+    inputSlider.oninput = function() {
+        outputSliderValue.innerHTML = this.value + " " + outputType;
+
+        if (inputElement == "sliders--action") {
+            tokens.actionRefreshRate = this.value;
+        } else {
+            tokens.refreshRateAllInMinutes = this.value * 60;
+        }   
+    }
+}
 
 let tokens = {
     accesstoken: await GetAccessToken(),
@@ -19,19 +41,20 @@ let tokens = {
 
 async function GetAccessToken() {
     try {
-      let accessToken = await chrome.cookies.get({
-        url: "https://www.depop.com",
-        name: "access_token"
-      });
-      return accessToken.value;
+        let accessToken = await chrome.cookies.get({
+            url: "https://www.poshmark.com",
+            name: "access_token"
+        });
+
+        return accessToken.value;
     } catch {
-    console.log("This is what happens");
+        console.log("This is what happens.");
     }
 }
 
-async function GetUserId(){
+async function GetUserId() {
     let userId = await chrome.cookies.get({
-        url: "https://www.depop.com",
+        url: "https://www.poshmark.com",
         name: "user_id"
     });
 
@@ -47,10 +70,70 @@ function OnLoad() {
     tokens.refreshRateAllInMinutes = document.querySelector(".sliders--hours").value * 60;
 }
 
+async function refreshClick() {
+    if (refreshButton.innerHTML == "Refresh") {
+      tokens.stopRefresh = false;
+      refreshButton.innerHTML = "Refreshing...";
+
+      await RefreshAllListings();
+    } else if (refreshButton.innerHTML == "Refreshing...") {
+      refreshButton.innerHTML = "Refresh";
+      tokens.stopRefresh = true;
+
+      RemovePicture();
+    } else {
+      tokens.interval = clearInterval();
+
+      let numberOfItems = document.createElement("p");
+
+      numberOfItems.remove();
+      refreshButton.innerHTML = "Refresh";
+    }
+}
+
+async function GetAllListings(accessToken, sort) {
+    const options = {
+        method: 'GET',
+        headers: {Authorization: `Bearer ${accessToken}`}
+      };
+
+      let response = null;
+
+      try {
+        let result = await fetch(`https://poshmark.com/closet/lyndskgg?availability=available&sort_by=${sort}`, options);
+        response = await result.json();
+      } catch {
+          console.log("https://poshmark.com/closet/lyndskgg?availability=available&sort_by=${sort} failed")
+      }
+
+      let bottom = false;
+      let scrollNumber = 0;
+      let currentHeight = await driver.executeScript(
+        "return document.documentElement.scrollHeight"
+      );
+
+      while (!bottom) {
+        console.log("Scroll # ", scrollNumber);
+        let scrollScript = "window.scrollTo(0, document.body.scrollHeight);";
+        driver.executeScript(scrollScript);
+        await sleep(2500);
+        let newHeight = await driver.executeScript(
+          "return document.documentElement.scrollHeight"
+        );
+        if (currentHeight === newHeight) {
+          bottom = true;
+        } else {
+          scrollNumber++;
+          currentHeight = newHeight;
+        }
+      }
+
+    return response;
+}
+
 async function GetAllUnsoldSlugs() {
     let unsoldListings = [];
-    let cursor = "";
-    let response = await Get48Listings(tokens.accesstoken, cursor);
+    let response = await GetAllListings(tokens.accesstoken, sort);
 
     while (true) {
           if (response.products[response.products.length - 1].status != "ONSALE") {
@@ -74,27 +157,10 @@ async function GetAllUnsoldSlugs() {
     return unsoldListings;
 }
 
-async function Get48Listings(accessToken, cursor){
-    const options = {
-        method: 'GET',
-        headers: {Authorization: `Bearer ${accessToken}`}
-      };
-      let response = null;
-
-      try{
-        let result = await fetch(`https://webapi.depop.com/api/v1/shop/products/?lang=en&cursor=${cursor}&limit=24`, options);
-        response = await result.json();
-      }
-      catch {
-          console.log("https://webapi.depop.com/api/v1/shop/products/?lang=en&cursor=&limit=24 failed")
-      }
-    return response;
-}
-
 function displayNumberOfUnSoldItems() {
     let refreshButton = document.querySelector(".refresh__button--button");
     let numberOfItems = document.createElement("p");
-    numberOfItems.innerHTML = `Itmes Refreshed: 0/${tokens.numberOfListings}`;
+    numberOfItems.innerHTML = `Items Refreshed: 0/${tokens.numberOfListings}`;
     refreshButton.appendChild(numberOfItems);
 }
 
@@ -114,7 +180,7 @@ async function GetListing(slug) {
     return response;
 }
 
-function showPicture(itemPicture){
+function showPicture(itemPicture) {
     let image;
 
     try {
@@ -137,7 +203,7 @@ function sleep(seconds) {
     return new Promise(resolve => setTimeout(resolve, seconds * 1000));
 }
 
-async function PutListing(getListingResponse){
+async function PutListing(getListingResponse) {
     let pictureIds = [];
 
     for (const picture of getListingResponse.pictures) {
@@ -185,7 +251,7 @@ async function PutListing(getListingResponse){
 function incrementItems() {
     let numberOfItems = document.querySelector("p");
     tokens.itemsRefreshed++;
-    numberOfItems.innerHTML = `Itmes Refreshed: ${tokens.itemsRefreshed}/${tokens.numberOfListings}`;
+    numberOfItems.innerHTML = `Items Refreshed: ${tokens.itemsRefreshed}/${tokens.numberOfListings}`;
 }
 
 async function MoveSoldListingToBottom() {
@@ -204,7 +270,7 @@ async function MoveSoldListingToBottom() {
       catch(e) {
         console("Exception in Move Sold Listings To Bottom", e);
       }
-      if(response.status != 204) {
+      if (response.status != 204) {
           console.log("Move Sold Listings to Bottom Failed", response);
       }
 }

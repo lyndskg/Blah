@@ -4,4 +4,4 @@ module.exports = {
         setTimeout(resolve, ms);
       });
     },
-  };
+};
